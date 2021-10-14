@@ -1,0 +1,191 @@
+---
+title: "Defusing R Expressions with rlang"
+author: "Gary Hutson"
+date: "14/10/2021"
+output:
+  html_document:
+    theme: lumen
+    highlight: tango
+    toc: true
+    number_sections: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rlang)
+```
+
+## Types of defused expressions
+
+- Calls, like f(1, 2, 3), 1 + 1, or ..., represent the action of calling a function to compute a new value, such as a vector.
+
+- Symbols, like x or df, represent named objects. When the object pointed to by the symbol was defined in a function or in the global environment, we call it an environment-variable. When the object is a column in a data frame, we call it a data-variable.
+
+
+### Create new symbol
+
+```{r new_expression}
+df <- NHSRdatasets::stranded_data
+
+# Call the symbol - get the object passed and not the result
+expr(df$stranded.label)
+
+# Create a call representing the computation of the mean
+expr(mean(df$stranded.label, na.rm=TRUE))
+
+
+```
+
+Defusing is not the only way to create defused expressions. You can also assemble them from data:
+
+```{r defuse_from_data}
+# Assemble a symbol from a string
+var <- "stranded_data"
+sym(var)
+# Assemble a call from strings, symbols, and other objects
+call("mean", sym(var), na.rm = TRUE)
+
+```
+
+# Defusing function arguments
+
+There are two points of view when it comes to defusing an expression:
+
+1. You can defuse expressions that you supply with **`expr()`**. This is one way of creating symbols and calls (see previous section).
+
+2. You can defuse the expressions supplied by the user of your function with the operators starting with en like **`ensym()`**, **`enquo()`** and their plural variants. They defuse function arguments.
+
+## Comparison to base R
+
+- The defusing operator **`expr()`** is similar to `__quote()__`. Like **`bquote()`**, it allows forcing evaluation of parts of an expression.
+- The plural variant exprs() is similar to alist().
+- The argument-defusing operator enquo() is similar to substitute().
+
+
+```{r capture_expression}
+
+expr(i_passed_this)
+
+# I can pass more I just need exprs
+
+exprs(i, passed, this, as, multiple, symbols)
+#Returns a list
+
+
+```
+
+To capture user expressions, most useful when designing functions, we just prefix with en:
+
+```{r capturing_expression}
+
+capture_multiple_expression_from_user <- function(some_arg, ...){
+  user_exprs <- enexprs(some_arg, ...)
+  return(user_exprs)
+}
+
+# User function
+capture_multiple_expression_from_user(this, is, gary, these, were, variables, they, would, be, passed,
+                                      through, the, myfunction, tidystyle)
+
+
+
+```
+
+Ensym and ensyms provide additional type checking to ensure the user calling your function has supplied bare object
+names:
+
+```{r ensym}
+sym_inputs <- function(...){
+  user_symbols <- ensyms(...)
+  user_symbols
+}
+
+#sym_inputs(say(hello))
+#This will generate an error
+
+sym_inputs(hello, "bonjour")
+
+
+```
+
+## Unquoting and quasi-modo
+
+All these quoting functions have quasiquotation support. This means that you can unquote (evaluate and inline) part of the captured expression:
+
+
+```{r unquoting}
+what <- sym("bonjour")
+what
+
+# Get the variable name passed
+expr(say(what))
+
+# Get the return value
+expr(say(!!what))
+
+# return a composite function
+expr(say({what}))
+
+
+```
+
+Unquoting multiple:
+
+```{r unquoting_multiple}
+
+capture_multiple_expression_from_user(say(!!what), !!what, what)
+# First is the unquoted variable
+# Second is the value passed to what
+# Third is the unquoted expression, meaning the actual value passed
+
+
+```
+
+# Quosures
+
+These are slightly different to what we have learned, as quosures capture the expression and the environment.
+
+```{r quosure}
+
+my_quo <- quo(letters)
+my_quo
+
+# Get the expression
+get_expr(my_quo)
+# Get the environment
+get_env(my_quo)
+
+# Evaluate the captured expression
+eval_tidy(my_quo)
+
+# They have the nice property that you can pass them around from
+# context to context (that is, from function to function) and they
+# still evaluate in their original environment:
+
+multiply_expr_by_10 <- function(expr){
+  expr <- enquo(expr) #Capture the user expression as symbol
+  
+  local_ten <- 10 # Set up variable local to function otherwise global <<-
+  
+  quo(!!expr * local_ten) #Quote the unquoted user supplied expression to get the value * ten
+}
+
+```
+The next step would be to evaluate this:
+
+```{r evalue_captued_expression}
+quo <- multiply_expr_by_10(2+3)
+# This will still be a quosure and it will contain the envrionment it is evaluated in
+quo
+# Finally, we would just then evaluate the quosure
+eval_tidy(quo)
+
+
+```
+
+
+
+
